@@ -1,177 +1,24 @@
 use std::env;
 use std::io::stdin;
-use std::io::Write;
-use std::time::Instant;
-use std::fs::File;
-use ahash::{AHashMap, AHashSet};
-use serde::{Serialize, Deserialize};
-use flate2::Compression;
-use flate2::read::DeflateDecoder;
-use flate2::write::DeflateEncoder;
-
-#[derive(Serialize, Deserialize)]
-struct Vertex {
-    link: String,
-    connected: Vec<usize>
-}
-
-impl Vertex{
-    fn new(link: String) -> Vertex {
-        return Vertex{link, connected: vec![] }
-    }
-
-    fn get_connected(&self) -> &Vec<usize> {
-        return &self.connected
-    }
-
-    fn add_connected(&mut self, connected: usize) {
-        self.connected.push(connected)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct Graph {
-    vertices: Vec<Vertex>
-}
-
-impl Graph {
-    fn new() -> Graph {
-        return Graph{ vertices: Vec::default() }
-    }
-
-    fn add_vertex(&mut self, link: String) {
-        self.vertices.push(Vertex::new(link))
-    }
-
-    fn add_connection(&mut self, from: usize, to: usize) {
-        if self.has_vertex(from) && self.has_vertex(to) {
-            self.vertices[from].add_connected(to)
-        }
-    }
-
-    fn has_vertex(&self, id: usize) -> bool {
-        return id < self.vertices.len()
-    }
-
-    fn find_by_link(&self, link: String) -> Result<usize, bool> {
-        for (index, vertex) in self.vertices.iter().enumerate() {
-            if vertex.link == link {
-                return Ok(index);
-            }
-        }
-
-        return Err(true)
-    }
-
-    fn get_neighbors(&self, id: usize) -> Result<&Vec<usize>, bool> {
-        if self.has_vertex(id) {
-            return Ok(self.vertices[id].get_connected());
-        }
-
-        return Err(true)
-    }
-
-    fn from_csv(path: &str) -> Graph {
-        let mut graph = Graph::new();
-        let mut connections: Vec<Vec<usize>> = Vec::default();
-        let mut reader = csv::ReaderBuilder::new().flexible(true).has_headers(false).from_path(path).unwrap();
-
-        println!("Reading in vertices and edges");
-
-        for record in reader.records() {
-            let record_data = record.unwrap();
-            let line: Vec<&str> = record_data.iter().collect();
-            graph.add_vertex(String::from(line[0]));
-            connections.push(line[1..].iter().map(|s| s.parse().unwrap()).collect());
-        }
-
-        println!("Successfully loaded vertices");
-
-        for (from_index, conns) in connections.iter().enumerate() {
-            for to_index in conns {
-                graph.add_connection(from_index, to_index.clone());
-            }
-        }
-
-        println!("Successfully loaded edges");
-
-        return graph
-    }
-
-    fn load() -> Graph {
-        let bytes = include_bytes!("../data.bin");
-        let decoder = DeflateDecoder::new(&bytes[..]);
-        return bincode::deserialize_from(decoder).unwrap();
-    }
-
-    fn save(graph: Graph) {
-        let serialized = bincode::serialize(&graph).unwrap();
-        let file = File::create("data.bin").unwrap();
-        let mut encoder = DeflateEncoder::new(file, Compression::best());
-        encoder.write_all(&serialized[..]).unwrap();
-        encoder.finish().unwrap();
-    }
-
-    fn get_shortest_path_ahash(&self, from_id: usize, to_id: usize) -> Result<Vec<usize>, bool> {
-        if !(self.has_vertex(from_id) && self.has_vertex(to_id)) {
-            return Err(true)
-        }
-
-        let mut layers: Vec<AHashSet<usize>> = vec![AHashSet::default()];
-        layers[0].insert(from_id);
-
-        let mut parents: AHashMap<usize, usize> = AHashMap::default();
-        parents.insert(from_id, from_id);
-
-        loop {
-            let mut current_layer: AHashSet<usize> = AHashSet::default();
-            for vertex_id in layers.get(layers.len() - 1).unwrap() {
-                for other_id in self.get_neighbors(vertex_id.clone()).unwrap() {
-                    if !parents.contains_key(other_id) {
-                        current_layer.insert(other_id.clone());
-                        parents.insert(other_id.clone(), vertex_id.clone());
-                    }
-                }
-            }
-
-            if current_layer.len() == 0 {
-                return Err(true)
-            }
-
-            layers.push(current_layer);
-
-            if parents.contains_key(&to_id) {
-                break
-            }
-        }
-
-        let mut path = vec![to_id];
-        loop {
-            let previous = path[path.len() - 1];
-            let parent = parents[&previous];
-            if parent == previous {
-                break
-            }
-            path.push(parent)
-        }
-        path.reverse();
-        
-        return Ok(path)
-    }
-}
+use std::sync::Arc;
+use std::thread;
+use std::collections::HashMap;
+use tiny_http::{Server, Method, Request, Response, Header};
+use url::Url;
+mod data_structures;
+use data_structures::Graph;
 
 fn input() -> String {
     let mut line = String::new();
     stdin().read_line(&mut line).unwrap();
     line = String::from(line.trim());
-    return line
+    return line;
 }
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() == 1 {
-        default()
+        http_server()
     } else if args[1] == "convert" {
         convert()
     } else if args[1] == "interactive" {
@@ -181,58 +28,72 @@ fn main() {
     }
 }
 
-fn default() {
-    Graph::load();
+fn http_server() {
+    let graph = Arc::new(Graph::load());
+    let server = Server::http("0.0.0.0:8000").unwrap();
+    println!("Ready");
+
+    for request in server.incoming_requests() {
+        if request.method() == &Method::Get {
+    
+            let graph = Arc::clone(&graph);
+            thread::spawn(move || http_thread(request, graph));
+        }
+    }
+}
+
+fn http_thread(request: Request, graph: Arc<Graph>) {
+    // Parse url
+    let url_string = String::from("http://0.0.0.0") + &String::from(request.url());
+    let url = Url::parse(&url_string).unwrap();
+    let mut pairs: HashMap<String, String> = HashMap::new();
+    for pair in url.query_pairs() {
+        pairs.insert(pair.0.to_string(), pair.1.to_string());
+    }
+
+    // Ensure valid data
+    if !(pairs.contains_key("from") && pairs.contains_key("to")) {
+        request.respond(Response::empty(400)).unwrap();
+        return
+    }
+
+    let path_result = graph.get_shortest_path(pairs["from"].clone(), pairs["to"].clone());
+
+    if path_result.is_err() {
+        let error = path_result.unwrap_err();
+        let error_message = error.to_string();
+        let error_message_bytes = error_message.as_bytes();
+        let header = Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=UTF-8"[..]).unwrap();
+        let response = Response::empty(500).with_header(header).with_data(error_message_bytes, Some(error_message_bytes.len()));
+        request.respond(response).unwrap();
+        return
+    }
+
+    let path = path_result.unwrap();
+    let json_path = json::stringify(path);
+    let json_path_bytes = json_path.as_bytes();
+    let header = Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=UTF-8"[..]).unwrap();
+    let response = Response::empty(200).with_header(header).with_data(json_path_bytes, Some(json_path_bytes.len()));
+    request.respond(response).unwrap();
 }
 
 fn convert() {
-    let graph = Graph::from_csv("links.csv");
-    Graph::save(graph)
+    Graph::convert()
 }
 
 fn interactive() {
-    let graph = Graph::from_csv("links.csv");
+    let graph = Graph::load();
 
     loop {
-        let from_id;
-        loop {
-            println!("From:");
-            let from_link = input();
-            let from_result = graph.find_by_link(from_link);
-            if from_result.is_err() {
-                println!("That source does not exist in the database!");
-                continue
-            }
-            from_id = from_result.unwrap();
-            break
+        println!("From: ");
+        let from_link = input();
+        println!("To: ");
+        let to_link = input();
+        let path = graph.get_shortest_path(from_link, to_link);
+        if path.is_err() {
+            println!("An error occurred: {}", path.unwrap_err())
+        } else {
+            println!("{:?}", path.unwrap());
         }
-        let to_id;
-        loop {
-            println!("To:");
-            let from_link = input();
-            let from_result = graph.find_by_link(from_link);
-            if from_result.is_err() {
-                println!("That destination does not exist in the database!");
-                continue
-            }
-            to_id = from_result.unwrap();
-            break
-        }
-        let start_time_new = Instant::now();
-        let path_ids_result = graph.get_shortest_path_ahash(from_id, to_id);
-        let end_time_new = Instant::now();
-        if path_ids_result.is_err() {
-            println!{"There is no path between the two"}
-            continue
-        }
-        let path_ids = path_ids_result.unwrap();
-        let mut path_links: Vec<String> = vec![];
-        for path_id in path_ids {
-            path_links.push(graph.vertices[path_id].link.clone())
-        }
-        println!{"{:?}", path_links}
-
-        println!{"Times:"};
-        println!{"New: {:?}", end_time_new.duration_since(start_time_new)}
     }
 }
