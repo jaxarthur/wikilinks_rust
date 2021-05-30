@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GraphError {
     LinkNotPresent,
     VertexNotFound,
