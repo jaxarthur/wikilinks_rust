@@ -65,7 +65,7 @@ pub struct Graph {
 }
 
 impl Graph {
-    fn new() -> Graph {
+    pub fn new() -> Graph {
         return Graph {
             vertices: Vec::default(),
         };
@@ -102,6 +102,7 @@ impl Graph {
 
         return Err(GraphError::VertexNotFound);
     }
+    
 
     pub fn convert() {
         let mut graph = Graph::new();

@@ -15,3 +15,6 @@ flate2 = "1.0.20"
 tiny_http = "0.8.2"
 url = "2.2.2"
 json = "0.12.4"
+hyper = { version = "0.14", features = ["full"]}
+tokio = { version = "1", features = ["full"] }
+askama = "0.10"

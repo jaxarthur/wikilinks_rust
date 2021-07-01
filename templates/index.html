@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="simple.min.css">
+    <title>Wiki Paths</title>
+</head>
+<body>
+  <header>
+    <h1>Wiki Paths</h1>
+    <p>Find the shortest path between any two english Wikipedia articles.</p>
+  </header>
+
+  <main id="main">
+    <form id="entry">
+      <h4>Please enter the starting and ending urls.</h4>
+
+      <p>
+        Urls must be a valid Wikipedia url. For example: 
+        <i>https://en.wikipedia.org/wiki/Doughnut</i>
+      </p>
+      
+      <p><mark id="error" hidden></mark></p>
+
+      <p>
+        <label>Starting page url</label><br>
+        <input type="text" id="from">
+      </p>
+
+      <p>
+        <label>Ending page url</label><br>
+        <input type="text" id="to"> 
+      </p>
+
+      <button onclick="submitEvent()" type="button">Submit</button>
+      <button type="reset">Reset</button>
+    </form>
+
+    <div id="result" hidden>
+      <h4>Path:</h4>
+      <p>Start</p>
+      <ul id="path">
+
+      </ul>
+      <p>End</p>
+    </div>
+  </main>
+
+  <footer>
+    <p>Wikipedia is a trademark of the Wikimedia Foundation and is used with the permission of the Wikimedia Foundation. We are not endorsed by or affiliated with the Wikimedia Foundation.</p>
+  </footer>
+</body>
+<script src="index.js"></script>
+</html>
