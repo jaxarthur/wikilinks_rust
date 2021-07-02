@@ -3,43 +3,51 @@ use crate::data_structures::{Graph, GraphError};
 use crate::include_static_pages;
 use crate::html_templates::{OutlineTemplate, ErrorTemplate};
 
+use bytes::Bytes;
+use h2::server::Connection;
 use tokio::runtime::Runtime;
-use hyper::{Server, Request, Body, Response};
-use hyper::server::conn::AddrStream;
-use hyper::service::{service_fn, make_service_fn};
-use askama::Template;
-use std::net::SocketAddr;
-use std::future::Future;
-use std::convert::Infallible;
+use tokio::net::{TcpListener, TcpStream};
+use h2::server;
+
 use std::collections::HashMap;
 
 struct HttpContext {
     static_pages: HashMap<String, String>,
-
     graph: Graph
 }
 
 pub fn http_server() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(http_runtime())
+}
+
+async fn http_runtime() {
     let graph = Graph::new();
     let static_pages = include_static_pages!("simple.min.css");
     let context = Arc::new(HttpContext{static_pages, graph});
-    let rt = Runtime::new().unwrap();
-    rt.block_on(http_runtime(context))
+
+    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+
+    loop {
+        let conn_result = listener.accept().await;
+        if conn_result.is_ok() {
+            let (socket, _peer_ip) = conn_result.unwrap();
+            let h2_result = server::handshake(socket).await;
+            if h2_result.is_ok() {
+                let h2 = h2_result.unwrap();
+                let context = context.clone();
+                http_handle(h2, context);
+            } else {
+                eprintln!("{}", h2_result.unwrap_err())
+            }
+        } else {
+            eprintln!("{}", conn_result.unwrap_err())
+        }
+    }
 }
 
-async fn http_runtime(context: Arc<HttpContext>) {
-    let addr = SocketAddr::from(([127,0,0,1], 8080));
+async fn http_handle(h2: Connection<TcpStream, Bytes>, context: Arc<HttpContext>) {
 
-    let service = make_service_fn(|conn: &AddrStream| async move {
-        let context = context.clone();
-        Ok::<_,Infallible>(service_fn(|req: Request<Body>| async move {http_handle(req, context)}))
-    });
-}
-
-async fn http_handle(req: Request<Body>, context: Arc<HttpContext>) -> Result<Response<Body>, Infallible> {
-    let body = Body::from("");
-    let response = Response::new(body);
-    return Ok(response);
 }
 
 /*pub fn http_server() {
