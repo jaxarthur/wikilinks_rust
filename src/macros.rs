@@ -10,3 +10,10 @@ macro_rules! include_static_pages {
         }
     };
 }
+
+#[macro_export]
+macro_rules! string {
+    ($str:expr) => {
+        String::from($str)
+    };
+}

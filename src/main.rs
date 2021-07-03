@@ -3,15 +3,15 @@ use std::io::stdin;
 mod macros;
 mod data_structures;
 use data_structures::Graph;
-mod http;
-use http::http_server;
+mod webserver;
+use webserver::webserver_start;
 mod html_templates;
 
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() == 1 {
-        http_server()
+        webserver_start()
     } else if args[1] == "convert" {
         convert()
     } else if args[1] == "interactive" {

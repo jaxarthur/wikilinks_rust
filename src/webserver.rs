@@ -1,30 +1,34 @@
 use std::sync::Arc;
 use crate::data_structures::{Graph, GraphError};
-use crate::include_static_pages;
-use crate::html_templates::{OutlineTemplate, ErrorTemplate};
+use crate::{include_static_pages, string};
+use crate::html_templates::{error_template};
 
 use bytes::Bytes;
 use h2::server::Connection;
+use http::Response;
 use tokio::runtime::Runtime;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::spawn_blocking;
 use h2::server;
+use url::Url;
+use http::response::Builder;
 
 use std::collections::HashMap;
 
-struct HttpContext {
+struct Context {
     static_pages: HashMap<String, String>,
     graph: Graph
 }
 
-pub fn http_server() {
+pub fn webserver_start() {
     let rt = Runtime::new().unwrap();
-    rt.block_on(http_runtime())
+    rt.block_on(webserver_runtime())
 }
 
-async fn http_runtime() {
+async fn webserver_runtime() {
     let graph = Graph::new();
     let static_pages = include_static_pages!("simple.min.css");
-    let context = Arc::new(HttpContext{static_pages, graph});
+    let context = Arc::new(Context{static_pages, graph});
 
     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
 
@@ -36,23 +40,54 @@ async fn http_runtime() {
             if h2_result.is_ok() {
                 let h2 = h2_result.unwrap();
                 let context = context.clone();
-                http_handle(h2, context);
+                spawn_blocking(move || {webserver_handle(h2, context)});
             } else {
-                eprintln!("{}", h2_result.unwrap_err())
+                eprintln!("Handshake Error: {}", h2_result.unwrap_err())
             }
         } else {
-            eprintln!("{}", conn_result.unwrap_err())
+            eprintln!("Listener Accept Error: {}", conn_result.unwrap_err())
         }
     }
 }
 
-async fn http_handle(h2: Connection<TcpStream, Bytes>, context: Arc<HttpContext>) {
-
+async fn webserver_handle(mut h2: Connection<TcpStream, Bytes>, context: Arc<Context>) {
+    let request_option = h2.accept().await;
+    if request_option.is_some() {
+        let request_result = request_option.unwrap();
+        if request_result.is_ok() {
+            let (request, mut send_response) = request_result.unwrap();
+            let uri = request.uri();
+            let url = Url::parse(&uri.to_string()).unwrap();
+            let (response, data) = webserver_get_page(url).await;
+            let mut test_stream = send_response.send_response(response, true).unwrap();
+            test_stream.send_data(data, true).unwrap();
+        }
+    }
 }
 
-/*pub fn http_server() {
+async fn webserver_get_page(url: Url) -> (Response<()>, Bytes) {
+    let mut status_code: u16 = 200;
+    let mut page = String::new();
+    let path = url.path_segments();
+
+    //Routing
+    //Check if it root
+    if (path.is_none()) {
+
+    } else {
+        status_code = 404;
+        page = error_template(404, string!("Page Not Found"));
+    }
+
+    let response_builder = Builder::new();
+    let response = response_builder.status(status_code).body(()).unwrap();
+    let data = Bytes::from(page);
+    return (response, data)
+}
+
+/*pub fn webserver_server() {
     let graph = Arc::new(Graph::load());
-    let server = Server::http("0.0.0.0:8080").unwrap();
+    let server = Server::webserver("0.0.0.0:8080").unwrap();
     let mut last_requests: HashMap<IpAddr, Instant> = HashMap::default();
     println!("Ready");
 
@@ -61,7 +96,7 @@ async fn http_handle(h2: Connection<TcpStream, Bytes>, context: Arc<HttpContext>
         if last_requests.contains_key(&address) {
             let last_request = last_requests[&address];
             if Instant::now().duration_since(last_request) < Duration::from_secs(5) {
-                http_respond(
+                webserver_respond(
                     request,
                     None,
                     Some("Please wait before submitting another query."),
@@ -73,14 +108,14 @@ async fn http_handle(h2: Connection<TcpStream, Bytes>, context: Arc<HttpContext>
 
         if request.method() == &Method::Get {
             let graph = Arc::clone(&graph);
-            thread::spawn(move || http_thread(request, graph));
+            thread::spawn(move || webserver_thread(request, graph));
         }
     }
 }
 
-fn http_thread(request: Request, graph: Arc<Graph>) {
+fn webserver_thread(request: Request, graph: Arc<Graph>) {
     // Parse url
-    let url_string = String::from("http://0.0.0.0") + &String::from(request.url());
+    let url_string = String::from("webserver://0.0.0.0") + &String::from(request.url());
     let url = Url::parse(&url_string).unwrap();
     let mut pairs: HashMap<String, String> = HashMap::new();
     for pair in url.query_pairs() {
@@ -89,7 +124,7 @@ fn http_thread(request: Request, graph: Arc<Graph>) {
 
     // Ensure valid data
     if !pairs.contains_key("from") || !pairs.contains_key("to") {
-        http_respond(request, None, Some("Malformed Request"));
+        webserver_respond(request, None, Some("Malformed Request"));
         return;
     }
 
@@ -98,19 +133,19 @@ fn http_thread(request: Request, graph: Arc<Graph>) {
     if path_result.is_err() {
         let error = path_result.unwrap_err();
         if error == GraphError::LinkNotPresent {
-            http_respond(request, None, Some("A URL is Invalid"));
+            webserver_respond(request, None, Some("A URL is Invalid"));
         } else if error == GraphError::NoPath {
-            http_respond(request, None, Some("No Path Between Provided URLs"));
+            webserver_respond(request, None, Some("No Path Between Provided URLs"));
         } else {
-            http_respond(request, None, Some("Internal Error"));
+            webserver_respond(request, None, Some("Internal Error"));
         }
         return;
     }
 
-    http_respond(request, Some(path_result.unwrap()), None);
+    webserver_respond(request, Some(path_result.unwrap()), None);
 }
 
-fn http_respond(request: Request, path: Option<Vec<String>>, error: Option<&str>) {
+fn webserver_respond(request: Request, path: Option<Vec<String>>, error: Option<&str>) {
     let object = object!("path": path, "error": error);
     let object_dump = object.dump();
     let data = object_dump.as_bytes();
