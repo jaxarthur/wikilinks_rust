@@ -1,19 +1,139 @@
 use std::sync::Arc;
 use crate::data_structures::{Graph, GraphError};
 use crate::{include_static_pages, string};
-use crate::html_templates::{error_template};
+use crate::html_templates::{entry_template, submit_template, error_template};
 
-use bytes::Bytes;
-use h2::server::Connection;
-use http::Response;
-use tokio::runtime::Runtime;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::task::spawn_blocking;
-use h2::server;
 use url::Url;
-use http::response::Builder;
+use rouille::{start_server, Request, Response};
 
 use std::collections::HashMap;
+
+type Cache = Arc<HashMap<(String, String), Vec<String>>>;
+
+pub fn webserver_start() {
+    let graph = Arc::new(Graph::new());
+    let cache: Cache = Arc::new(HashMap::new());
+
+    start_server("0.0.0.0:8080", move |request| {
+        let graph_clone = graph.clone();
+        let cache_clone = cache.clone();
+        webserver_handle(request, graph_clone, cache_clone)
+    })
+}
+
+fn webserver_handle(request: &Request, graph: Arc<Graph>, cache: Cache) -> Response {
+    let (path, pairs) = parse_url(request.raw_url());
+    
+    let mut response = error_404();
+
+    if path.len() == 1 {
+        if path[0] == "" {
+            response = entry(pairs);
+        } else if path[0] == "submit" {
+            response = submit(pairs);
+        } else if path[0] == "path" {
+            response = get_path(pairs, graph);
+        }
+    } else if path.len() == 2 && path[0] == "static" {
+        response = get_static_page(path[1].clone());
+    }
+
+    return response;
+}
+
+fn get_static_page(name: String) -> Response {
+    println!("{}", name);
+    let static_pages = include_static_pages!("simple.min.css");
+    let mut response = error_404();
+    
+    if static_pages.contains_key(&name) {
+        response = Response::text(static_pages.get(&name).unwrap());
+        if name.contains("css") {
+            response = response.with_unique_header("Content-Type", "text/css")
+        }
+    }
+
+    return response;
+}
+
+fn entry(query_pairs: HashMap<String, String>) -> Response {
+    let mut hide_error = true;
+    let mut error_message = string!("");
+
+    if query_pairs.contains_key("error") {
+        hide_error = false;
+        error_message = query_pairs.get("error").unwrap().clone();
+    }
+    return Response::html(entry_template(hide_error, error_message));
+}
+
+fn submit(query_pairs: HashMap<String, String>) -> Response {
+    let mut redirect_url = string!("/?error=You must enter a from and a to link.");
+    let mut message = string!("You must enter a from and a to link.");
+
+    if query_pairs.contains_key("from") && query_pairs.contains_key("to") {
+        let from = query_pairs.get("from").unwrap();
+        let to = query_pairs.get("to").unwrap();
+        redirect_url = format!("/path?from={}&to={}", from, to);
+        message = string!("Please wait while a path is found.")
+    }
+
+    return Response::html(submit_template(redirect_url, message))
+}
+
+fn get_path(query_pairs: HashMap<String, String>, graph: Arc<Graph>) -> Response {
+    // Ensure valid data
+    if !query_pairs.contains_key("from") || !query_pairs.contains_key("to") {
+        return error_400();
+    }
+
+    let path_result = graph.get_shortest_path(query_pairs["from"], query_pairs["to"]);
+
+    if path_result.is_err() {
+        let error = path_result.unwrap_err();
+        if error == GraphError::LinkNotPresent {
+            webserver_respond(request, None, Some("A URL is Invalid"));
+        } else if error == GraphError::NoPath {
+            webserver_respond(request, None, Some("No Path Between Provided URLs"));
+        } else {
+            webserver_respond(request, None, Some("Internal Error"));
+        }
+        return;
+    }
+
+    webserver_respond(request, Some(path_result.unwrap()), None);
+}
+
+fn error_400() -> Response {
+    let mut response = Response::html(error_template(400, string!("Bad Request")));
+    response = response.with_status_code(400);
+    return response;
+}
+
+fn error_404() -> Response {
+    let mut response = Response::html(error_template(404, string!("Page Not Found")));
+    response = response.with_status_code(404);
+    return response;
+}
+
+fn parse_url(raw_url: &str) -> (Vec<String>, HashMap<String, String>) {
+    let full_raw_url = string!("https://localhost/") + raw_url;
+    let url = Url::parse(&full_raw_url).unwrap();
+    
+    let mut path = url.path_segments().unwrap().map(|x| {string!(x)}).collect::<Vec<_>>();
+    path.remove(0);
+
+    let unprocessed_pairs = url.query_pairs();
+    let mut pairs = HashMap::new();
+
+    for (key, value) in unprocessed_pairs {
+        pairs.insert(string!(key), string!(value));
+    }
+
+    return (path, pairs);
+}
+
+/* 
 
 struct Context {
     static_pages: HashMap<String, String>,
@@ -84,6 +204,7 @@ async fn webserver_get_page(url: Url) -> (Response<()>, Bytes) {
     let data = Bytes::from(page);
     return (response, data)
 }
+*/
 
 /*pub fn webserver_server() {
     let graph = Arc::new(Graph::load());

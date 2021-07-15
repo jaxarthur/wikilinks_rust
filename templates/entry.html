@@ -1,0 +1,23 @@
+<form action=/submit>
+    <h4>Please enter the starting and ending urls.</h4>
+
+    <p>
+      Urls must be a valid Wikipedia url. For example: 
+      <i>https://en.wikipedia.org/wiki/Doughnut</i>
+    </p>
+
+    <p hidden={{ hide_error }}><mark></mark> {{ error_message }} </p>
+
+    <p>
+        <label>Starting page url</label><br>
+        <input type="text" name="from">
+    </p>
+
+    <p>
+        <label>Ending page url</label><br>
+        <input type="text" name="to"> 
+    </p>
+
+    <button>Submit</button>
+    <button type="reset">Reset</button>
+</form>
