@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use crate::data_structures::{Graph, GraphError};
+use crate::html_templates::{entry_template, error_template, submit_template};
 use crate::{include_static_pages, string};
-use crate::html_templates::{entry_template, submit_template, error_template};
+use std::sync::Arc;
 
-use url::Url;
 use rouille::{start_server, Request, Response};
+use url::Url;
 
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ pub fn webserver_start() {
 
 fn webserver_handle(request: &Request, graph: Arc<Graph>, cache: Cache) -> Response {
     let (path, pairs) = parse_url(request.raw_url());
-    
+
     let mut response = error_404();
 
     if path.len() == 1 {
@@ -45,7 +45,7 @@ fn get_static_page(name: String) -> Response {
     println!("{}", name);
     let static_pages = include_static_pages!("simple.min.css");
     let mut response = error_404();
-    
+
     if static_pages.contains_key(&name) {
         response = Response::text(static_pages.get(&name).unwrap());
         if name.contains("css") {
@@ -78,7 +78,7 @@ fn submit(query_pairs: HashMap<String, String>) -> Response {
         message = string!("Please wait while a path is found.")
     }
 
-    return Response::html(submit_template(redirect_url, message))
+    return Response::html(submit_template(redirect_url, message));
 }
 
 fn get_path(query_pairs: HashMap<String, String>, graph: Arc<Graph>) -> Response {
@@ -119,8 +119,12 @@ fn error_404() -> Response {
 fn parse_url(raw_url: &str) -> (Vec<String>, HashMap<String, String>) {
     let full_raw_url = string!("https://localhost/") + raw_url;
     let url = Url::parse(&full_raw_url).unwrap();
-    
-    let mut path = url.path_segments().unwrap().map(|x| {string!(x)}).collect::<Vec<_>>();
+
+    let mut path = url
+        .path_segments()
+        .unwrap()
+        .map(|x| string!(x))
+        .collect::<Vec<_>>();
     path.remove(0);
 
     let unprocessed_pairs = url.query_pairs();
@@ -133,7 +137,7 @@ fn parse_url(raw_url: &str) -> (Vec<String>, HashMap<String, String>) {
     return (path, pairs);
 }
 
-/* 
+/*
 
 struct Context {
     static_pages: HashMap<String, String>,

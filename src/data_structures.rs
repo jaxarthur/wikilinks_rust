@@ -102,7 +102,6 @@ impl Graph {
 
         return Err(GraphError::VertexNotFound);
     }
-    
 
     pub fn convert() {
         let mut graph = Graph::new();
@@ -149,7 +148,7 @@ impl Graph {
         &self,
         from_link: String,
         to_link: String,
-    ) -> Result<Vec<String>, GraphError> {
+    ) -> Result<Vec<(String, String)>, GraphError> {
         let from_id = self.find_by_link(from_link)?;
         let to_id = self.find_by_link(to_link)?;
 
@@ -160,8 +159,8 @@ impl Graph {
         let mut layers: Vec<AHashSet<usize>> = vec![AHashSet::default()];
         layers[0].insert(from_id);
 
-        let mut parents: AHashMap<usize, usize> = AHashMap::default();
-        parents.insert(from_id, from_id);
+        let mut parents: AHashMap<usize, Vec<usize>> = AHashMap::default();
+        parents.insert(from_id, vec![from_id]);
 
         loop {
             let mut current_layer: AHashSet<usize> = AHashSet::default();
@@ -169,7 +168,10 @@ impl Graph {
                 for other_id in self.get_neighbors(vertex_id.clone())? {
                     if !parents.contains_key(other_id) {
                         current_layer.insert(other_id.clone());
-                        parents.insert(other_id.clone(), vertex_id.clone());
+                        parents
+                            .entry(other_id.clone())
+                            .or_insert(Vec::new())
+                            .push(vertex_id.clone());
                     }
                 }
             }
@@ -185,22 +187,26 @@ impl Graph {
             }
         }
 
-        let mut path = vec![to_id];
+        let mut links: Vec<(String, String)> = Vec::new();
+        let mut layer = vec![to_id];
         loop {
-            let previous = path[path.len() - 1];
-            let parent = parents[&previous];
-            if parent == previous {
+            let mut new_layer = Vec::new();
+            for node in layer {
+                let mut node_parents = parents[&node];
+                for parent in node_parents {
+                    let node_name = self.vertices[node.clone()].link.clone();
+                    let parent_name = self.vertices[parent.clone()].link.clone();
+                    links.push((node_name, parent_name));
+                }
+                new_layer.append(&mut node_parents);
+            }
+
+            layer = new_layer;
+            if layer.len() == 1 && layer[0] == from_id {
                 break;
             }
-            path.push(parent)
         }
-        path.reverse();
 
-        let link_path: Vec<String> = path
-            .iter()
-            .map(|id| self.vertices[id.clone()].link.clone())
-            .collect();
-
-        return Ok(link_path);
+        return Ok(links);
     }
 }

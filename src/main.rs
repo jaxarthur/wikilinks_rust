@@ -6,6 +6,7 @@ use data_structures::Graph;
 mod webserver;
 use webserver::webserver_start;
 mod html_templates;
+mod graph_render;
 
 
 fn main() {
